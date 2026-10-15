@@ -1,0 +1,9 @@
+#!/bin/bash
+# Wait until Paper accepts connections on 25565, then start the AFK bot.
+for _ in $(seq 1 180); do
+  (exec 3<>/dev/tcp/127.0.0.1/25565) 2>/dev/null && break
+  sleep 2
+done
+sleep 5
+cd /home/ytang/minecraft-afk-bot
+exec /usr/local/bin/node bot.js

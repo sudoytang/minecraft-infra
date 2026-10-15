@@ -1,0 +1,28 @@
+# --- secrets: never commit ---
+authme-password
+.authme-password
+*.env
+rclone.conf*
+*_key
+*.pem
+id_*
+# --- runtime / player data ---
+authme.db
+ops.json*
+whitelist.json*
+usercache.json
+banned-*.json
+world*/
+logs/
+*.log
+# --- large binaries (see docs in each dir for how to obtain) ---
+*.jar
+docker/host/rclone
+docker/host/minecraft-afk-azalea
+node_modules/
+afk-bot-azalea/target/
+restore-verify/opt/
+restore-verify/work/
+*.tar.gz
+*.tgz
+*.mrpack.preloaded

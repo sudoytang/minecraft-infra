@@ -1,0 +1,73 @@
+#!/bin/bash
+set -euo pipefail
+
+root=/srv/minecraft
+backup_dir="$root/backups"
+remote_dir="onedrive:MCBackups/minecraft"
+config=/etc/rclone/rclone.conf
+
+# A missed/overlapping timer must not sync an archive while it is being made.
+while /usr/bin/systemctl is-active --quiet minecraft-backup.service; do
+    /usr/bin/sleep 5
+done
+
+shopt -s nullglob
+archives=("$backup_dir"/minecraft-*.tar.gz)
+if ((${#archives[@]} == 0)); then
+    echo "No local Minecraft archives to upload."
+    exit 0
+fi
+
+/usr/bin/rclone --config "$config" copy \
+    "$backup_dir" \
+    "$remote_dir" \
+    --include 'minecraft-*.tar.gz' \
+    --retries 3 \
+    --low-level-retries 10
+
+# Keep daily snapshots for seven days, then the newest snapshot per ISO week
+# for up to 52 weeks. Run pruning only after every pending upload succeeds.
+/usr/bin/python3 -I - "$config" "$remote_dir" <<'PY'
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime, timedelta
+
+config, remote_dir = sys.argv[1:]
+listing = subprocess.run(
+    ["/usr/bin/rclone", "--config", config, "lsjson", remote_dir, "--files-only"],
+    check=True,
+    capture_output=True,
+    text=True,
+)
+now = datetime.now()
+daily_cutoff = now - timedelta(days=7)
+weekly_cutoff = now - timedelta(weeks=52)
+pattern = re.compile(r"^minecraft-(\d{8}-\d{6})\.tar\.gz$")
+snapshots = []
+
+for item in json.loads(listing.stdout):
+    name = item.get("Name", "")
+    match = pattern.fullmatch(name)
+    if match:
+        timestamp = datetime.strptime(match.group(1), "%Y%m%d-%H%M%S")
+        snapshots.append((timestamp, name))
+
+keep = {name for timestamp, name in snapshots if timestamp >= daily_cutoff}
+weekly = {}
+for timestamp, name in snapshots:
+    if daily_cutoff > timestamp >= weekly_cutoff:
+        key = timestamp.isocalendar()[:2]
+        if key not in weekly or timestamp > weekly[key][0]:
+            weekly[key] = (timestamp, name)
+keep.update(name for _, name in weekly.values())
+
+for _, name in snapshots:
+    if name not in keep:
+        print(f"Removing expired OneDrive snapshot: {name}", flush=True)
+        subprocess.run(
+            ["/usr/bin/rclone", "--config", config, "deletefile", f"{remote_dir}/{name}"],
+            check=True,
+        )
+PY

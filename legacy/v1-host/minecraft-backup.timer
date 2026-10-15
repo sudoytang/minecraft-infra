@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Paper Minecraft backup
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=minecraft-backup.service
+
+[Install]
+WantedBy=timers.target

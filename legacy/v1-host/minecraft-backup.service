@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up the Paper Minecraft server
+ConditionPathIsDirectory=/srv/minecraft
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/minecraft-backup
+

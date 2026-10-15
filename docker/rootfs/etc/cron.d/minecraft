@@ -1,0 +1,9 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TZ=Asia/Shanghai
+# minecraft-backup: daily 06:00 + up to 15 min random delay
+0 6 * * * root sleep $((RANDOM \% 900)); /usr/local/bin/run-job minecraft-backup /usr/local/sbin/minecraft-backup
+# minecraft-backup-upload: daily 06:40 -> Shanghai COS (internal)
+40 6 * * * root /usr/local/bin/run-job minecraft-backup-upload /usr/local/sbin/minecraft-backup-upload
+# minecraft-onedrive-weekly: Sunday 03:17 newest archive -> OneDrive MCBackups/minecraft-weekly (no deletes)
+17 3 * * 0 root /usr/local/bin/run-job minecraft-onedrive-weekly /usr/local/sbin/minecraft-onedrive-weekly

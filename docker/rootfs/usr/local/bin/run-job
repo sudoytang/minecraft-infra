@@ -1,0 +1,20 @@
+#!/bin/bash
+# run-job UNIT CMD...  — cron wrapper: lock, log, notify on failure. Mimics a systemd oneshot.
+set -u
+unit=$1; shift
+log=/var/log/minecraft/$unit.log
+lock=/var/run/minecraft/$unit.lock
+mkdir -p /var/run/minecraft
+exec 9>"$lock"
+flock -n 9 || { echo "$(date -Is) $unit already running" >>"$log"; exit 0; }
+echo "$(date -Is) Starting $unit" >>"$log"
+touch "/var/run/minecraft/$unit.active"
+"$@" >>"$log" 2>&1; rc=$?
+rm -f "/var/run/minecraft/$unit.active"
+if ((rc == 0)); then
+  echo "$(date -Is) Finished $unit" >>"$log"; echo ok > "/var/run/minecraft/$unit.result"
+else
+  echo "$(date -Is) $unit FAILED rc=$rc" >>"$log"; echo "failed rc=$rc" > "/var/run/minecraft/$unit.result"
+  /usr/local/bin/notify-failure "$unit"
+fi
+exit $rc

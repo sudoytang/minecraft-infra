@@ -1,0 +1,61 @@
+#!/bin/bash
+set -euo pipefail
+
+service=minecraft.service
+root=/srv/minecraft
+backup_dir="$root/backups"
+rcon=/usr/local/sbin/minecraft-admin
+stamp="$(/usr/bin/date +%Y%m%d-%H%M%S)"
+archive="$backup_dir/minecraft-$stamp.tar.gz"
+save_maybe_disabled=no
+
+restore_saving() {
+    if [[ "$save_maybe_disabled" == yes ]]; then
+        "$rcon" rcon save-on || true
+    fi
+}
+
+trap restore_saving EXIT
+/usr/bin/install -d -o minecraft -g minecraft -m 0750 "$backup_dir"
+
+if /usr/bin/systemctl is-active --quiet "$service"; then
+    # Flush pending world writes, then hold disk saves steady while tar reads.
+    # Players stay connected and can continue playing during the snapshot.
+    "$rcon" rcon save-all flush
+    save_maybe_disabled=yes
+    "$rcon" rcon save-off
+fi
+
+/usr/bin/tar \
+    --exclude='./backups' \
+    --exclude='./cache' \
+    --exclude='./logs' \
+    --exclude='./libraries' \
+    --exclude='./versions' \
+    --exclude='./.cache' \
+    --exclude='./paper.jar' \
+    -C "$root" \
+    -czf "$archive" \
+    .
+
+if [[ "$save_maybe_disabled" == yes ]]; then
+    "$rcon" rcon save-on
+    save_maybe_disabled=no
+fi
+
+/usr/bin/chown minecraft:minecraft "$archive"
+/usr/bin/chmod 0640 "$archive"
+
+/usr/bin/python3 -I - "$backup_dir" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+archives = sorted(
+    root.glob("minecraft-*.tar.gz"),
+    key=lambda path: path.stat().st_mtime,
+    reverse=True,
+)
+for archive in archives[7:]:
+    archive.unlink()
+PY

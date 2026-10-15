@@ -1,0 +1,2 @@
+[build]
+# Prefer mold/lld if present; otherwise default linker is fine.

@@ -1,0 +1,36 @@
+#!/bin/bash
+# systemctl shim so host-era scripts (minecraft-admin, backup, upload) work inside the container.
+# minecraft.service -> supervisor "paper"; minecraft-afk-bot.service -> "afk";
+# minecraft-backup[-upload].service -> run-job state files; *.timer -> cron.
+sc() { /usr/bin/supervisorctl -c /etc/supervisor/supervisord.conf "$@"; }
+quiet=no; args=(); skip=
+for a in "$@"; do
+  if [[ -n $skip ]]; then skip=; continue; fi
+  case "$a" in --quiet|-q) quiet=yes ;; --user|--no-pager|-l|--all) ;; -M|-p) skip=1 ;; -*) ;; *) args+=("$a") ;; esac
+done
+act=${args[0]:-}; unit=${args[1]:-}
+case "$unit" in minecraft|minecraft.service) p=paper ;; minecraft-afk-bot|minecraft-afk-bot.service) p=afk ;; *) p= ;; esac
+j=${unit%.service}; j=${j%.timer}
+case "$act" in
+  is-active)
+    if [[ -n $p ]]; then sc status "$p" | grep -q RUNNING && r=active || r=inactive
+    else [[ -e /var/run/minecraft/$j.active ]] && r=active || r=inactive; fi
+    [[ $quiet == yes ]] || echo "$r"; [[ $r == active ]] ;;
+  start|stop|restart)
+    [[ -n $p ]] || { echo "shim: $act $unit unsupported" >&2; exit 1; }
+    out=$(sc "$act" "$p" 2>&1); echo "$out"
+    [[ $out != *ERROR* || $out == *"not running"* || $out == *"already started"* ]] ;;
+  status)
+    if [[ -n $p ]]; then sc status "$p"; else
+      echo "● $unit (container cron)"; grep -h "run-job $j " /etc/cron.d/minecraft 2>/dev/null | sed 's/^/   schedule: /'
+      echo "   last result: $(cat /var/run/minecraft/$j.result 2>/dev/null || echo none)"
+      tail -n 5 "/var/log/minecraft/$j.log" 2>/dev/null; fi; true ;;
+  show)
+    if [[ -n $p ]]; then pid=$(sc pid "$p"); grep VmRSS "/proc/$pid/status" 2>/dev/null; fi
+    echo "MemoryCurrent(container)=$(cat /sys/fs/cgroup/memory.current)"
+    echo "MemoryPeak(container)=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null)"
+    echo "MemoryMax(container)=$(cat /sys/fs/cgroup/memory.max)" ;;
+  cat) [[ $unit == *.timer ]] ;;
+  daemon-reload|enable|disable|reset-failed) exit 0 ;;
+  *) echo "shim: unsupported: $*" >&2; exit 1 ;;
+esac

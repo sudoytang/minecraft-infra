@@ -1,0 +1,485 @@
+#!/bin/bash
+set -euo pipefail
+
+service=minecraft.service
+root=/srv/minecraft
+templates=/usr/local/share/minecraft-admin
+afk_user=ytang
+afk_service=minecraft-afk-bot.service
+afk_program=afk-azalea
+
+usage() {
+    echo "Usage: minecraft-admin ACTION [ARGS]" >&2
+    echo "Actions:" >&2
+    echo "  start stop restart status logs" >&2
+    echo "  backup backup-list backup-check backup-mode" >&2
+    echo "  auth-config-apply auth-test-on auth-test-off" >&2
+    echo "  whitelist-add whitelist-remove whitelist-list" >&2
+    echo "  ops-list ops-add ops-remove" >&2
+    echo "  props-get [KEY]  props-set KEY VALUE" >&2
+    echo "  plugins-list tree du" >&2
+    echo "  afk status|start|stop|restart" >&2
+    echo "  disk mem" >&2
+    echo "  rcon <command...>" >&2
+    exit 2
+}
+
+restart_if_active() {
+    local was_active=no
+    if /usr/bin/systemctl is-active --quiet "$service"; then
+        was_active=yes
+        /usr/bin/systemctl stop "$service"
+    fi
+    local result=0
+    if "$@"; then
+        result=0
+    else
+        result=$?
+    fi
+    if [[ "$was_active" == yes ]]; then
+        /usr/bin/systemctl start "$service"
+    fi
+    return "$result"
+}
+
+install_properties() {
+    local source=$1
+    [[ -f "$source" && ! -L "$source" ]] || exit 1
+    /usr/bin/cp -a \
+        "$root/server.properties" \
+        "$root/server.properties.previous"
+    /usr/bin/install \
+        -o minecraft \
+        -g minecraft \
+        -m 0640 \
+        "$source" \
+        "$root/server.properties"
+}
+
+install_auth_config() {
+    local source="$templates/authme-config.yml"
+    local target="$root/plugins/AuthMe/config.yml"
+    [[ -f "$source" && ! -L "$source" ]] || exit 1
+    /usr/bin/cp -a "$target" "$target.previous"
+    /usr/bin/install \
+        -o minecraft \
+        -g minecraft \
+        -m 0640 \
+        "$source" \
+        "$target"
+}
+
+edit_whitelist() {
+    local operation=$1
+    local username=$2
+    [[ "$username" =~ ^[A-Za-z0-9_]{3,16}$ ]] || {
+        echo "Invalid username: $username" >&2
+        exit 2
+    }
+    /usr/bin/python3 -I - "$operation" "$username" <<'PY'
+import hashlib
+import json
+import grp
+import os
+import pwd
+import sys
+import uuid
+
+path = "/srv/minecraft/whitelist.json"
+operation, name = sys.argv[1:]
+
+try:
+    with open(path, encoding="utf-8") as handle:
+        entries = json.load(handle)
+except FileNotFoundError:
+    entries = []
+
+if not isinstance(entries, list):
+    raise SystemExit("whitelist.json is not a JSON list")
+
+old = list(entries)
+entries = [
+    item for item in entries
+    if str(item.get("name", "")).casefold() != name.casefold()
+]
+
+if operation == "add":
+    raw = bytearray(
+        hashlib.md5(("OfflinePlayer:" + name).encode("utf-8")).digest()
+    )
+    raw[6] = (raw[6] & 0x0f) | 0x30
+    raw[8] = (raw[8] & 0x3f) | 0x80
+    entries.append({"uuid": str(uuid.UUID(bytes=bytes(raw))), "name": name})
+
+if os.path.exists(path):
+    with open(path + ".previous", "w", encoding="utf-8") as handle:
+        json.dump(old, handle, indent=2)
+        handle.write("\n")
+
+temporary = path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as handle:
+    json.dump(entries, handle, indent=2)
+    handle.write("\n")
+uid = pwd.getpwnam("minecraft").pw_uid
+gid = grp.getgrnam("minecraft").gr_gid
+os.chown(temporary, uid, gid)
+os.chmod(temporary, 0o640)
+os.replace(temporary, path)
+PY
+}
+
+edit_ops() {
+    local operation=$1
+    local username=$2
+    [[ "$username" =~ ^[A-Za-z0-9_]{3,16}$ ]] || {
+        echo "Invalid username: $username" >&2
+        exit 2
+    }
+    /usr/bin/python3 -I - "$operation" "$username" <<'PY'
+import hashlib
+import json
+import grp
+import os
+import pwd
+import sys
+import uuid
+
+path = "/srv/minecraft/ops.json"
+operation, name = sys.argv[1:]
+
+try:
+    with open(path, encoding="utf-8") as handle:
+        entries = json.load(handle)
+except FileNotFoundError:
+    entries = []
+
+if not isinstance(entries, list):
+    raise SystemExit("ops.json is not a JSON list")
+
+old = list(entries)
+entries = [
+    item for item in entries
+    if str(item.get("name", "")).casefold() != name.casefold()
+]
+
+if operation == "add":
+    raw = bytearray(
+        hashlib.md5(("OfflinePlayer:" + name).encode("utf-8")).digest()
+    )
+    raw[6] = (raw[6] & 0x0f) | 0x30
+    raw[8] = (raw[8] & 0x3f) | 0x80
+    entries.append({
+        "uuid": str(uuid.UUID(bytes=bytes(raw))),
+        "name": name,
+        "level": 4,
+        "bypassesPlayerLimit": False,
+    })
+
+if os.path.exists(path):
+    with open(path + ".previous", "w", encoding="utf-8") as handle:
+        json.dump(old, handle, indent=2)
+        handle.write("\n")
+
+temporary = path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as handle:
+    json.dump(entries, handle, indent=2)
+    handle.write("\n")
+uid = pwd.getpwnam("minecraft").pw_uid
+gid = grp.getgrnam("minecraft").gr_gid
+os.chown(temporary, uid, gid)
+os.chmod(temporary, 0o640)
+os.replace(temporary, path)
+PY
+}
+
+props_get() {
+    local key=${1:-}
+    local file="$root/server.properties"
+    [[ -f "$file" ]] || {
+        echo "Missing $file" >&2
+        exit 1
+    }
+    if [[ -z "$key" ]]; then
+        /usr/bin/cat "$file"
+        return
+    fi
+    [[ "$key" =~ ^[A-Za-z0-9._-]+$ ]] || {
+        echo "Invalid property key: $key" >&2
+        exit 2
+    }
+    /usr/bin/python3 -I - "$file" "$key" <<'PY'
+import sys
+
+path, key = sys.argv[1:]
+found = False
+with open(path, encoding="utf-8") as handle:
+    for line in handle:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith(key + "="):
+            print(stripped)
+            found = True
+            break
+if not found:
+    raise SystemExit(f"Property not set: {key}")
+PY
+}
+
+props_set() {
+    local key=$1
+    local value=$2
+    local file="$root/server.properties"
+    [[ -f "$file" ]] || {
+        echo "Missing $file" >&2
+        exit 1
+    }
+    [[ "$key" =~ ^[A-Za-z0-9._-]+$ ]] || {
+        echo "Invalid property key: $key" >&2
+        exit 2
+    }
+    if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+        echo "Invalid property value (contains newline)" >&2
+        exit 2
+    fi
+    /usr/bin/python3 -I - "$file" "$key" "$value" <<'PY'
+import grp
+import os
+import pwd
+import sys
+
+path, key, value = sys.argv[1:]
+with open(path, encoding="utf-8") as handle:
+    lines = handle.readlines()
+
+updated = False
+out = []
+for line in lines:
+    stripped = line.strip()
+    if stripped and not stripped.startswith("#") and stripped.startswith(key + "="):
+        out.append(f"{key}={value}\n")
+        updated = True
+    else:
+        out.append(line)
+
+if not updated:
+    if out and not out[-1].endswith("\n"):
+        out[-1] += "\n"
+    out.append(f"{key}={value}\n")
+
+previous = path + ".previous"
+with open(previous, "w", encoding="utf-8") as handle:
+    handle.writelines(lines)
+uid = pwd.getpwnam("minecraft").pw_uid
+gid = grp.getgrnam("minecraft").gr_gid
+os.chown(previous, uid, gid)
+os.chmod(previous, 0o640)
+
+temporary = path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as handle:
+    handle.writelines(out)
+os.chown(temporary, uid, gid)
+os.chmod(temporary, 0o640)
+os.replace(temporary, path)
+print(f"Set {key}={value}")
+print("Restart the server for this to take effect: sudo minecraft-admin restart")
+PY
+}
+
+show_tree() {
+    [[ -d "$root" ]] || {
+        echo "Missing $root" >&2
+        exit 1
+    }
+    /usr/bin/find "$root" \
+        -mindepth 1 \
+        \( -path "$root/backups" -o -path "$root/cache" -o -path "$root/libraries" -o -path "$root/versions" -o -path "$root/logs" -o -path "$root/.cache" \) -prune -o \
+        -printf '%y %p\n' | /usr/bin/sort
+}
+
+show_du() {
+    [[ -d "$root" ]] || {
+        echo "Missing $root" >&2
+        exit 1
+    }
+    echo "=== Total ==="
+    /usr/bin/du -sh "$root"
+    echo "=== Top-level ==="
+    /usr/bin/du -sh "$root"/* "$root"/.[!.]* 2>/dev/null | /usr/bin/sort -h
+}
+
+backup_mode() {
+    local script=/usr/local/sbin/minecraft-backup
+    echo "=== Backup script ==="
+    if [[ ! -f "$script" ]]; then
+        echo "missing: $script"
+    elif /bin/grep -q 'systemctl stop' "$script" 2>/dev/null; then
+        echo "mode: stop-server (live stops minecraft while archiving)"
+    elif /bin/grep -q 'save-off' "$script" 2>/dev/null; then
+        echo "mode: live-rcon (save-all/save-off, players stay connected)"
+    else
+        echo "mode: unknown (could not detect stop vs save-off)"
+    fi
+    echo "=== Local backup timer ==="
+    /usr/bin/systemctl status minecraft-backup.timer --no-pager -l || true
+    echo "=== Upload timer (split backup) ==="
+    if /usr/bin/systemctl cat minecraft-backup-upload.timer &>/dev/null; then
+        /usr/bin/systemctl status minecraft-backup-upload.timer --no-pager -l || true
+    else
+        echo "minecraft-backup-upload.timer: not installed"
+    fi
+}
+
+afk_ctl() {
+    local sub=$1
+    case "$sub" in
+        status|start|stop|restart)
+            /usr/bin/supervisorctl "$sub" "$afk_program"
+            ;;
+        *)
+            echo "Usage: minecraft-admin afk status|start|stop|restart" >&2
+            exit 2
+            ;;
+    esac
+}
+
+action=${1:-}
+case "$action" in
+    start|stop|restart)
+        [[ $# -eq 1 ]] || usage
+        /usr/bin/systemctl "$action" "$service"
+        ;;
+    status)
+        [[ $# -eq 1 ]] || usage
+        /usr/bin/systemctl status "$service" --no-pager -l
+        ;;
+    logs)
+        [[ $# -eq 1 ]] || usage
+        /usr/bin/journalctl -u "$service" -n 200 --no-pager
+        ;;
+    backup)
+        [[ $# -eq 1 ]] || usage
+        /usr/local/sbin/minecraft-backup
+        ;;
+    backup-list)
+        [[ $# -eq 1 ]] || usage
+        /usr/bin/find "$root/backups" \
+            -maxdepth 1 \
+            -type f \
+            -name 'minecraft-*.tar.gz' \
+            -printf '%TY-%Tm-%Td %TH:%TM %10s %f\n'
+        ;;
+    backup-check)
+        [[ $# -eq 1 ]] || usage
+        echo '=== Minecraft server ==='
+        /usr/bin/systemctl status "$service" --no-pager -l || true
+        echo '=== Backup service ==='
+        /usr/bin/systemctl status minecraft-backup.service --no-pager -l || true
+        echo '=== Recent backup log ==='
+        /usr/bin/journalctl -u minecraft-backup.service -n 100 --no-pager || true
+        echo '=== Local backup files ==='
+        /usr/bin/find "$root/backups" -maxdepth 1 -type f -name 'minecraft-*.tar.gz' \
+            -printf '%TY-%Tm-%Td %TH:%TM %10s %f\n' 2>&1 || true
+        echo '=== OneDrive backup files ==='
+        /usr/bin/rclone --config /etc/rclone/rclone.conf lsf onedrive:MCBackups/minecraft --format 'tp' 2>&1 || true
+        ;;
+    backup-mode)
+        [[ $# -eq 1 ]] || usage
+        backup_mode
+        ;;
+    auth-config-apply)
+        [[ $# -eq 1 ]] || usage
+        restart_if_active install_auth_config
+        ;;
+    auth-test-on)
+        [[ $# -eq 1 ]] || usage
+        restart_if_active install_properties \
+            "$templates/server.properties.auth-test"
+        ;;
+    auth-test-off)
+        [[ $# -eq 1 ]] || usage
+        restart_if_active install_properties \
+            "$templates/server.properties"
+        ;;
+    whitelist-add)
+        [[ $# -eq 2 ]] || usage
+        restart_if_active edit_whitelist add "$2"
+        ;;
+    whitelist-remove)
+        [[ $# -eq 2 ]] || usage
+        restart_if_active edit_whitelist remove "$2"
+        ;;
+    whitelist-list)
+        [[ $# -eq 1 ]] || usage
+        if [[ -f "$root/whitelist.json" ]]; then
+            /usr/bin/python3 -I -m json.tool "$root/whitelist.json"
+        else
+            echo '[]'
+        fi
+        ;;
+    ops-list)
+        [[ $# -eq 1 ]] || usage
+        if [[ -f "$root/ops.json" ]]; then
+            /usr/bin/python3 -I -m json.tool "$root/ops.json"
+        else
+            echo '[]'
+        fi
+        ;;
+    ops-add)
+        [[ $# -eq 2 ]] || usage
+        restart_if_active edit_ops add "$2"
+        ;;
+    ops-remove)
+        [[ $# -eq 2 ]] || usage
+        restart_if_active edit_ops remove "$2"
+        ;;
+    props-get)
+        [[ $# -eq 1 || $# -eq 2 ]] || usage
+        props_get "${2:-}"
+        ;;
+    props-set)
+        [[ $# -eq 3 ]] || usage
+        props_set "$2" "$3"
+        ;;
+    plugins-list)
+        [[ $# -eq 1 ]] || usage
+        if [[ -d "$root/plugins" ]]; then
+            /usr/bin/find "$root/plugins" -maxdepth 1 -type f -name '*.jar' -printf '%f\n' | /usr/bin/sort
+        else
+            echo "Missing $root/plugins" >&2
+            exit 1
+        fi
+        ;;
+    tree)
+        [[ $# -eq 1 ]] || usage
+        show_tree
+        ;;
+    du)
+        [[ $# -eq 1 ]] || usage
+        show_du
+        ;;
+    afk)
+        [[ $# -eq 2 ]] || usage
+        afk_ctl "$2"
+        ;;
+    disk)
+        [[ $# -eq 1 ]] || usage
+        /usr/bin/df -h /
+        /usr/bin/df -h "$root" 2>/dev/null || true
+        ;;
+    mem)
+        [[ $# -eq 1 ]] || usage
+        /usr/bin/free -h
+        echo "=== Minecraft service memory ==="
+        /usr/bin/systemctl show "$service" -p MemoryCurrent -p MemoryPeak -p MemoryMax --no-pager 2>/dev/null || true
+        true
+        ;;
+    rcon)
+        [[ $# -ge 2 ]] || usage
+        shift
+        /usr/local/sbin/minecraft-rcon "$@"
+        ;;
+    *)
+        usage
+        ;;
+esac

@@ -1,0 +1,63 @@
+#!/bin/bash
+set -euo pipefail
+
+service=minecraft.service
+root=/srv/minecraft
+backup_dir="$root/backups"
+rcon=/usr/local/sbin/minecraft-admin
+stamp="$(/usr/bin/date +%Y%m%d-%H%M%S)"
+archive="$backup_dir/minecraft-$stamp.tar.gz"
+server_was_stopped=no
+
+restart_server() {
+    if [[ "$server_was_stopped" == yes ]]; then
+        /usr/bin/systemctl start "$service" || true
+    fi
+}
+
+trap restart_server EXIT
+/usr/bin/install -d -o minecraft -g minecraft -m 0750 "$backup_dir"
+
+if /usr/bin/systemctl is-active --quiet "$service"; then
+    # Stop-server mode: warn players, then stop minecraft while tar reads,
+    # so the archive is a consistent snapshot. The EXIT trap always restarts.
+    "$rcon" rcon say "Server backup: restarting in 10 seconds, back in a few minutes." || true
+    /usr/bin/sleep 10
+    "$rcon" rcon save-all flush || true
+    server_was_stopped=yes
+    /usr/bin/systemctl stop "$service"
+fi
+
+/usr/bin/tar \
+    --exclude='./backups' \
+    --exclude='./cache' \
+    --exclude='./logs' \
+    --exclude='./libraries' \
+    --exclude='./versions' \
+    --exclude='./.cache' \
+    --exclude='./paper.jar' \
+    -C "$root" \
+    -czf "$archive" \
+    .
+
+if [[ "$server_was_stopped" == yes ]]; then
+    /usr/bin/systemctl start "$service"
+    server_was_stopped=no
+fi
+
+/usr/bin/chown minecraft:minecraft "$archive"
+/usr/bin/chmod 0640 "$archive"
+
+/usr/bin/python3 -I - "$backup_dir" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+archives = sorted(
+    root.glob("minecraft-*.tar.gz"),
+    key=lambda path: path.stat().st_mtime,
+    reverse=True,
+)
+for archive in archives[7:]:
+    archive.unlink()
+PY

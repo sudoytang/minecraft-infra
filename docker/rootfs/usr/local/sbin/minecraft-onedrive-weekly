@@ -1,0 +1,20 @@
+#!/bin/bash
+# Weekly: upload newest local archive to OneDrive. Never deletes anything remotely.
+set -euo pipefail
+backup_dir=/srv/minecraft/backups
+remote_dir="onedrive:MCBackups/minecraft-weekly"
+config=/etc/rclone/rclone.conf
+# don't race an archive being written
+while [[ -e /var/run/minecraft/minecraft-backup.active ]]; do sleep 10; done
+shopt -s nullglob
+archives=("$backup_dir"/minecraft-*.tar.gz)
+((${#archives[@]})) || { echo "No local archives."; exit 0; }
+newest=$(ls -1t "${archives[@]}" | head -1); name=$(basename "$newest")
+if rclone --config "$config" lsf "$remote_dir/$name" 2>/dev/null | grep -qx "$name"; then
+  echo "$name already on OneDrive, skip."; exit 0
+fi
+echo "Uploading $name"
+nice -n 19 ionice -c3 rclone --config "$config" copyto "$newest" "$remote_dir/$name" \
+  --bwlimit 4M --onedrive-chunk-size 10M --retries 5 --low-level-retries 20 \
+  --stats 5m --stats-one-line -v
+echo "Uploaded $name"

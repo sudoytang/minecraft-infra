@@ -1,0 +1,19 @@
+# Thin wrapper: boot ordering + one name for start/stop. Docker restart policy
+# (unless-stopped) handles crashes; this unit does not supervise the process.
+[Unit]
+Description=Minecraft all-in-one (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/minecraft
+ExecStart=/usr/bin/docker compose -f /opt/minecraft/compose.yaml up -d --no-build
+ExecStop=/usr/bin/docker compose -f /opt/minecraft/compose.yaml down --timeout 120
+TimeoutStartSec=300
+TimeoutStopSec=150
+
+[Install]
+WantedBy=multi-user.target

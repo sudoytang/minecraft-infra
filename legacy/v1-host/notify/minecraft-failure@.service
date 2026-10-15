@@ -1,0 +1,13 @@
+[Unit]
+Description=Notify Grok Bot that %i failed
+After=network-online.target
+Wants=network-online.target
+# Do not OnFailure this unit itself
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/minecraft-notify.env
+Environment=MONITOR_UNIT=%i
+ExecStart=/usr/local/sbin/minecraft-notify-failure
+Nice=10
+# Remain after exit so repeated failures don't pile confusingly; oneshot is fine

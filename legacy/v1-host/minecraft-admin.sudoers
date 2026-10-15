@@ -1,0 +1,2 @@
+ytang ALL=(root) NOPASSWD: /usr/local/sbin/minecraft-admin *
+

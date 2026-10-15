@@ -1,0 +1,38 @@
+#!/bin/bash
+# Daily: push local archives to Shanghai COS over the internal network (169.254.0.x).
+# COS lifecycle (prefix daily/) expires objects after 7 days; nothing is deleted here.
+set -euo pipefail
+root=/srv/minecraft
+backup_dir="$root/backups"
+config=/etc/rclone/rclone.conf
+# bucket from secrets (COS_BUCKET=mc-backup-<appid>), set in /etc/minecraft-secrets/cos.env
+# shellcheck disable=SC1091
+. /etc/minecraft-secrets/cos.env
+remote="cos:${COS_BUCKET}/daily"
+
+while /usr/bin/systemctl is-active --quiet minecraft-backup.service; do /usr/bin/sleep 5; done
+
+shopt -s nullglob
+archives=("$backup_dir"/minecraft-*.tar.gz)
+((${#archives[@]})) || { echo "No local archives."; exit 0; }
+
+# Internal endpoint check: refuse to upload over the public internet by mistake.
+ip=$(getent hosts "cos.ap-shanghai.myqcloud.com" | awk '{print $1; exit}')
+[[ $ip == 169.254.* ]] || { echo "COS endpoint resolves to $ip (not internal); abort"; exit 1; }
+
+# Per-file copyto: the writer policy denies ListObjects with prefix=daily/ and rclone
+# then misdetects "daily" as a file, so copy/sync to the prefix cannot be used.
+# Only archives from the last 8 days (older ones would expire immediately anyway).
+rc_all=0
+while IFS= read -r -d '' f; do
+    name=${f##*/}
+    local_size=$(/usr/bin/stat -c %s "$f")
+    remote_size=$(/usr/bin/rclone --config "$config" lsjson --stat "$remote/$name" --s3-no-check-bucket 2>/dev/null \
+        | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("Size",-1))' 2>/dev/null || echo -1)
+    if [[ "$remote_size" == "$local_size" ]]; then echo "skip (already in COS): $name"; continue; fi
+    echo "upload: $name ($local_size bytes)"
+    /usr/bin/rclone --config "$config" copyto "$f" "$remote/$name" \
+        --s3-no-check-bucket --retries 3 --low-level-retries 10 --stats-one-line --stats 60s -v || rc_all=1
+done < <(/usr/bin/find "$backup_dir" -maxdepth 1 -type f -name 'minecraft-*.tar.gz' -mtime -8 -print0)
+/usr/bin/rclone --config "$config" lsf "cos:${COS_BUCKET}" -R --files-only --format tsp --s3-no-check-bucket | grep ";daily/"
+exit $rc_all

@@ -1,0 +1,12 @@
+#!/bin/bash
+# Wait until Paper accepts connections on 25565, then start dual Azalea AFK bots.
+for _ in $(seq 1 180); do
+  (exec 3<>/dev/tcp/127.0.0.1/25565) 2>/dev/null && break
+  sleep 2
+done
+sleep 8
+export AUTHME_PASSWORD_FILE="${AUTHME_PASSWORD_FILE:-/home/ytang/minecraft-afk-azalea/authme-password}"
+export AUTHME_PASSWORD_FILE_MAIN="${AUTHME_PASSWORD_FILE_MAIN:-/home/ytang/minecraft-afk-bot/authme-password}"
+export RUST_LOG="${RUST_LOG:-warn}"
+cd /home/ytang/minecraft-afk-azalea
+exec /usr/local/bin/minecraft-afk-azalea

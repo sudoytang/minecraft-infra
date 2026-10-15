@@ -1,0 +1,9 @@
+{
+  "name": "minecraft-afk-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline-mode AFK bot for the local Paper server",
+  "dependencies": {
+    "mineflayer": "https://github.com/Complexity-ML/mineflayer-26.2/releases/download/complexity-26.2.3/mineflayer-complexity-26.2.3.tgz"
+  }
+}

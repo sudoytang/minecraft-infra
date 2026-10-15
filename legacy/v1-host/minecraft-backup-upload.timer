@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily OneDrive upload of Minecraft backups
+
+[Timer]
+OnCalendar=*-*-* 07:00:00
+Persistent=true
+Unit=minecraft-backup-upload.service
+
+[Install]
+WantedBy=timers.target

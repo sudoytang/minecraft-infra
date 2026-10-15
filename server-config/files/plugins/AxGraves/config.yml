@@ -1,0 +1,85 @@
+prefix: "<gradient:#FF00FF:#DD00FF><b>AxGraves</b></gradient> &7» "
+
+despawn-time-seconds: 86400
+drop-items: false
+dropped-item-velocity: false
+
+enable-instant-pickup: true
+instant-pickup-only-own: false
+
+override-keep-inventory: false
+override-keep-level: false
+
+hologram-height: 0.5
+head-height: -1.2
+rotate-head-360: true
+
+auto-rotation:
+  enabled: false
+  speed: 10.0
+
+interact-only-own: false
+
+xp-keep-percentage: 1.0
+store-items: true
+store-xp: true
+
+grave-item-order:
+  - "ARMOR"
+  - "HAND"
+  - "OFFHAND"
+
+auto-equip-armor: true
+grave-limit: 3
+despawn-when-empty: true
+
+save-graves:
+  enabled: true
+  auto-save-seconds: 30
+
+custom-grave-skull:
+  enabled: false
+  base64: ""
+
+spawn-height-limits:
+  world:
+    min: -64
+    max: 319
+  world_nether:
+    min: 0
+    max: 319
+  world_the_end:
+    min: 0
+    max: 319
+
+command-aliases:
+  - "axgraves"
+  - "axgrave"
+  - "graves"
+  - "grave"
+
+world-name:
+  world: "Overworld"
+  world_nether: "The Nether"
+  world_the_end: "The End"
+
+disabled-worlds: []
+blacklisted-death-causes: []
+blacklisted-items: {}
+
+death-listener-priority: HIGHEST
+
+holograms:
+  background-color: 00000000
+  alignment: center
+  billboard: vertical
+  see-through: false
+  shadow: true
+
+update-notifier:
+  enabled: true
+  on-join: false
+
+debug: false
+version: 19
+

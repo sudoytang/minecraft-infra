@@ -1,0 +1,5 @@
+#!/bin/bash
+cd /srv/minecraft
+umask 0027
+exec setpriv --reuid=999 --regid=989 --clear-groups --no-new-privs \
+    java ${JAVA_OPTS:--Xms1G -Xmx2560M} -jar paper.jar --nogui

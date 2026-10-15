@@ -1,0 +1,11 @@
+#!/bin/bash
+# journalctl shim: -u UNIT [-n N] -> tail of container log files.
+unit=""; n=50
+while (($#)); do case "$1" in -u) unit=$2; shift ;; -n) n=$2; shift ;; esac; shift; done
+case "${unit%.service}" in
+  minecraft) f=/var/log/minecraft/paper.log ;;
+  minecraft-afk-bot) f=/var/log/minecraft/afk.log ;;
+  "") f=/var/log/minecraft/supervisord.log ;;
+  *) f=/var/log/minecraft/${unit%.service}.log ;;
+esac
+tail -n "$n" "$f" 2>/dev/null || true

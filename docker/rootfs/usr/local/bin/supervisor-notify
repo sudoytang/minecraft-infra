@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+# supervisord event listener: unexpected exit / FATAL of paper or afk -> webhook.
+import os, subprocess, sys
+def w(s): sys.stdout.write(s); sys.stdout.flush()
+while True:
+    w("READY\n")
+    hdr = dict(x.split(":", 1) for x in sys.stdin.readline().split())
+    body = sys.stdin.read(int(hdr["len"]))
+    p = dict(x.split(":", 1) for x in body.split())
+    name, ev = p.get("processname", ""), hdr.get("eventname", "")
+    bad = ev == "PROCESS_STATE_FATAL" or (ev == "PROCESS_STATE_EXITED" and p.get("expected") == "0")
+    if bad and name in ("paper", "afk"):
+        unit = {"paper": "minecraft.service", "afk": "minecraft-afk-bot.service"}[name]
+        subprocess.Popen(["/usr/local/bin/notify-failure", unit])
+    w("RESULT 2\nOK")

@@ -1,0 +1,46 @@
+name: minecraft
+services:
+  minecraft:
+    build: .
+    image: local/minecraft-aio:2
+    container_name: minecraft
+    hostname: mc-container
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 120s
+    environment:
+      JAVA_OPTS: "-Xms1G -Xmx2560M"
+    ports:
+      - "25565:25565"
+    networks:
+      mcnet:
+        ipv4_address: 172.30.0.10
+    volumes:
+      - /srv/minecraft:/srv/minecraft
+      - sshkeys:/etc/ssh/keys
+      - secrets:/etc/minecraft-secrets
+      - afk:/home/ytang/minecraft-afk-bot
+    mem_limit: 3200m
+    memswap_limit: 6g
+    cpus: 1.8
+    pids_limit: 768
+    ulimits:
+      nofile: {soft: 65535, hard: 65535}
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID, SYS_CHROOT, KILL, AUDIT_WRITE]
+    logging:
+      driver: journald
+      options: {tag: minecraft}
+
+networks:
+  mcnet:
+    name: mcnet
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  sshkeys: {name: minecraft-sshkeys}
+  secrets: {name: minecraft-secrets}
+  afk: {name: minecraft-afk}

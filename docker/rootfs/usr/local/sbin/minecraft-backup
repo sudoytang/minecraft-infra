@@ -1,0 +1,58 @@
+#!/bin/bash
+# In-container stop-mode backup: stops only the Paper process (container stays up).
+# (backup-mode detection keys on the string: systemctl stop)
+set -euo pipefail
+root=/srv/minecraft
+backup_dir="$root/backups"
+rcon=/usr/local/sbin/minecraft-admin
+stamp="$(/usr/bin/date +%Y%m%d-%H%M%S)"
+archive="$backup_dir/minecraft-$stamp.tar.gz"
+paper_was_stopped=no
+
+restart_paper() {
+    if [[ "$paper_was_stopped" == yes ]]; then /usr/bin/systemctl start minecraft.service || true; fi
+}
+trap restart_paper EXIT
+/usr/bin/install -d -o minecraft -g minecraft -m 0750 "$backup_dir"
+
+if /usr/bin/systemctl is-active --quiet minecraft.service; then
+    "$rcon" rcon say "Server backup: restarting in 10 seconds, back in a few minutes." || true
+    /usr/bin/sleep 10
+    "$rcon" rcon save-all flush || true
+    paper_was_stopped=yes
+    /usr/bin/systemctl stop minecraft.service   # supervisor: SIGINT, waits up to 110s
+fi
+
+/usr/bin/tar \
+    --exclude='./backups' \
+    --exclude='./cache' \
+    --exclude='./logs' \
+    --exclude='./libraries' \
+    --exclude='./versions' \
+    --exclude='./.cache' \
+    --exclude='./paper.jar' \
+    -C "$root" \
+    -czf "$archive" \
+    .
+
+if [[ "$paper_was_stopped" == yes ]]; then
+    /usr/bin/systemctl start minecraft.service
+    paper_was_stopped=no
+fi
+
+/usr/bin/chown minecraft:minecraft "$archive"
+/usr/bin/chmod 0640 "$archive"
+
+/usr/bin/python3 -I - "$backup_dir" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+archives = sorted(
+    root.glob("minecraft-*.tar.gz"),
+    key=lambda path: path.stat().st_mtime,
+    reverse=True,
+)
+for archive in archives[7:]:
+    archive.unlink()
+PY

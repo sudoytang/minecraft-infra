@@ -1,0 +1,5 @@
+#!/bin/bash
+# notify-failure UNIT  — loads webhook env, calls original notify script (journalctl shim feeds log tail).
+set -u
+[[ -r /etc/minecraft-notify.env ]] && { set -a; . /etc/minecraft-notify.env; set +a; }
+MONITOR_UNIT="${1:-unknown}" exec /usr/local/sbin/minecraft-notify-failure
