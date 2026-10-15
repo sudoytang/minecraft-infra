@@ -23,6 +23,10 @@ So staging is the *newer* version (superset), not live. It is kept on branch `st
 until it is deployed; after deploying (copy to `/opt/minecraft/host/` + container `/usr/local/sbin/`), merge that branch.
 
 ## Other observations
-* `templates/server.properties(.auth-test)` contain `enable-rcon` but no `rcon.password`; `auth-test-on/off` installs
-  them over the live server.properties, which would drop the rcon password/port until re-added.
+* FIXED 2026-10-15: `auth-test-on/off` used to install `templates/server.properties(.auth-test)` over the live
+  server.properties (templates lack `rcon.password`, have `enable-rcon=false`, empty `level-seed`, ...). They now
+  merge in place via `merge_properties`, setting only `server-ip` + `white-list`
+  (on: `server-ip=127.0.0.1 white-list=false`; off: `server-ip= white-list=true`); every other line incl. rcon and
+  management secrets is preserved, backup still goes to `server.properties.previous`. The two full templates are no
+  longer used by any command (kept only as historical reference; still COPYed into the image).
 * `/opt/minecraft` still holds one-time scripts (migrate/rollback/cleanup/move-to-opt/add-swap/apply-mem) – harmless, untracked.

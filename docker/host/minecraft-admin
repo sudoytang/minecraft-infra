@@ -58,18 +58,91 @@ require_restart_flag() {
     fi
 }
 
-install_properties() {
-    local source=$1
-    [[ -f "$source" && ! -L "$source" ]] || exit 1
-    /usr/bin/cp -a \
-        "$root/server.properties" \
-        "$root/server.properties.previous"
-    /usr/bin/install \
-        -o minecraft \
-        -g minecraft \
-        -m 0640 \
-        "$source" \
-        "$root/server.properties"
+# auth-test mode only toggles these keys; everything else in the live
+# server.properties (rcon.password, rcon.port, enable-rcon,
+# management-server-secret, level-seed, comments, ...) is preserved.
+auth_test_on_props=(server-ip=127.0.0.1 white-list=false)
+auth_test_off_props=(server-ip= white-list=true)
+
+# merge_properties KEY=VALUE...: back up to server.properties.previous, then
+# set only the given keys in place (append if missing) and atomically replace.
+merge_properties() {
+    local file="$root/server.properties"
+    [[ -f "$file" && ! -L "$file" ]] || {
+        echo "Missing or unsafe $file" >&2
+        return 1
+    }
+    # return (not exit) so restart_if_active still restarts Paper on failure
+    /usr/bin/cp -a "$file" "$root/server.properties.previous" || return 1
+    /usr/bin/python3 -I - "$file" "$@" <<'PY'
+import grp
+import os
+import pwd
+import sys
+import tempfile
+
+path = sys.argv[1]
+updates = {}
+for pair in sys.argv[2:]:
+    key, sep, value = pair.partition("=")
+    if not sep or not key or "\n" in value or "\r" in value:
+        raise SystemExit(f"bad property assignment: {key!r}")
+    if key in ("rcon.password", "management-server-secret"):
+        raise SystemExit(f"refusing to touch secret key {key}")
+    updates[key] = value
+if not updates:
+    raise SystemExit("no properties to set")
+
+with open(path, encoding="utf-8") as handle:
+    lines = handle.readlines()
+
+def key_of(line):
+    stripped = line.strip()
+    if not stripped or stripped.startswith(("#", "!")):
+        return None
+    return stripped.split("=", 1)[0].strip() if "=" in stripped else None
+
+out, seen = [], set()
+for line in lines:
+    key = key_of(line)
+    if key in updates:
+        out.append(f"{key}={updates[key]}\n")
+        seen.add(key)
+    else:
+        out.append(line)
+if out and not out[-1].endswith("\n"):
+    out[-1] += "\n"
+for key, value in updates.items():
+    if key not in seen:
+        out.append(f"{key}={value}\n")
+
+# Safety: every line not belonging to an updated key must be unchanged.
+keep_old = [l for l in lines if key_of(l) not in updates]
+keep_new = [l for l in out if key_of(l) not in updates]
+if [l.rstrip("\n") for l in keep_old] != [l.rstrip("\n") for l in keep_new]:
+    raise SystemExit("merge sanity check failed; server.properties not modified")
+
+directory = os.path.dirname(path)
+fd, tmp = tempfile.mkstemp(prefix=".server.properties.", dir=directory)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.writelines(out)
+        handle.flush()
+        os.fsync(handle.fileno())
+    try:
+        os.chown(tmp, pwd.getpwnam("minecraft").pw_uid, grp.getgrnam("minecraft").gr_gid)
+    except KeyError:
+        pass
+    os.chmod(tmp, 0o640)
+    os.replace(tmp, path)
+except BaseException:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+    raise
+
+for key, value in updates.items():
+    print(f"server.properties: {key}={value}")
+PY
 }
 
 install_auth_config() {
@@ -494,15 +567,13 @@ case "$action" in
         require_restart_flag auth-test-on "${2:-}"
         [[ $# -eq 2 ]] || usage
         echo "WARNING: restarting Paper now (auth-test-on)..." >&2
-        restart_if_active install_properties \
-            "$templates/server.properties.auth-test"
+        restart_if_active merge_properties "${auth_test_on_props[@]}"
         ;;
     auth-test-off)
         require_restart_flag auth-test-off "${2:-}"
         [[ $# -eq 2 ]] || usage
         echo "WARNING: restarting Paper now (auth-test-off)..." >&2
-        restart_if_active install_properties \
-            "$templates/server.properties"
+        restart_if_active merge_properties "${auth_test_off_props[@]}"
         ;;
     whitelist-add)
         [[ $# -eq 2 ]] || usage
