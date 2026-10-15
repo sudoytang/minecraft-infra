@@ -13,7 +13,8 @@ usage() {
     echo "Actions:" >&2
     echo "  start stop restart status logs" >&2
     echo "  backup backup-list backup-check backup-mode" >&2
-    echo "  auth-config-apply auth-test-on auth-test-off" >&2
+    echo "  auth-config-apply --restart" >&2
+    echo "  auth-test-on --restart   auth-test-off --restart" >&2
     echo "  whitelist-add whitelist-remove whitelist-list" >&2
     echo "  ops-list ops-add ops-remove" >&2
     echo "  props-get [KEY]  props-set KEY VALUE" >&2
@@ -24,9 +25,14 @@ usage() {
     exit 2
 }
 
+paper_is_active() {
+    /usr/bin/systemctl is-active --quiet "$service"
+}
+
+# Wrap a file edit in stop/start ONLY when the caller intentionally needs a restart.
 restart_if_active() {
     local was_active=no
-    if /usr/bin/systemctl is-active --quiet "$service"; then
+    if paper_is_active; then
         was_active=yes
         /usr/bin/systemctl stop "$service"
     fi
@@ -40,6 +46,16 @@ restart_if_active() {
         /usr/bin/systemctl start "$service"
     fi
     return "$result"
+}
+
+require_restart_flag() {
+    local action=$1
+    shift
+    if [[ "${1:-}" != "--restart" ]]; then
+        echo "ERROR: $action will stop Paper briefly (players kicked)." >&2
+        echo "Re-run with explicit flag: minecraft-admin $action --restart" >&2
+        exit 2
+    fi
 }
 
 install_properties() {
@@ -190,6 +206,87 @@ os.chown(temporary, uid, gid)
 os.chmod(temporary, 0o640)
 os.replace(temporary, path)
 PY
+}
+
+# Live-safe: prefer rcon when Paper is up; always update JSON for persistence; never restart.
+ops_add_live() {
+    local name=$1
+    [[ "$name" =~ ^[A-Za-z0-9_]{3,16}$ ]] || {
+        echo "Invalid username: $name" >&2
+        exit 2
+    }
+    if paper_is_active; then
+        if /usr/local/sbin/minecraft-rcon "op $name"; then
+            edit_ops add "$name" || true
+            echo "ops-add: applied live via rcon (no restart)."
+            return 0
+        fi
+        echo "ops-add: rcon failed; updating ops.json only (takes effect on next join/restart)." >&2
+        edit_ops add "$name"
+        return 0
+    fi
+    edit_ops add "$name"
+    echo "ops-add: Paper inactive; updated ops.json (takes effect on next start)."
+}
+
+ops_remove_live() {
+    local name=$1
+    [[ "$name" =~ ^[A-Za-z0-9_]{3,16}$ ]] || {
+        echo "Invalid username: $name" >&2
+        exit 2
+    }
+    if paper_is_active; then
+        if /usr/local/sbin/minecraft-rcon "deop $name"; then
+            edit_ops remove "$name" || true
+            echo "ops-remove: applied live via rcon (no restart)."
+            return 0
+        fi
+        echo "ops-remove: rcon failed; updating ops.json only (takes effect on next join/restart)." >&2
+        edit_ops remove "$name"
+        return 0
+    fi
+    edit_ops remove "$name"
+    echo "ops-remove: Paper inactive; updated ops.json (takes effect on next start)."
+}
+
+whitelist_add_live() {
+    local name=$1
+    [[ "$name" =~ ^[A-Za-z0-9_]{3,16}$ ]] || {
+        echo "Invalid username: $name" >&2
+        exit 2
+    }
+    if paper_is_active; then
+        if /usr/local/sbin/minecraft-rcon "whitelist add $name"; then
+            edit_whitelist add "$name" || true
+            echo "whitelist-add: applied live via rcon (no restart)."
+            return 0
+        fi
+        echo "whitelist-add: rcon failed; updating whitelist.json only (takes effect on next join/restart)." >&2
+        edit_whitelist add "$name"
+        return 0
+    fi
+    edit_whitelist add "$name"
+    echo "whitelist-add: Paper inactive; updated whitelist.json (takes effect on next start)."
+}
+
+whitelist_remove_live() {
+    local name=$1
+    [[ "$name" =~ ^[A-Za-z0-9_]{3,16}$ ]] || {
+        echo "Invalid username: $name" >&2
+        exit 2
+    }
+    if paper_is_active; then
+        if /usr/local/sbin/minecraft-rcon "whitelist remove $name"; then
+            edit_whitelist remove "$name" || true
+            echo "whitelist-remove: applied live via rcon (no restart)."
+            return 0
+        fi
+        echo "whitelist-remove: rcon failed; updating whitelist.json only (takes effect on next join/restart)." >&2
+        edit_whitelist remove "$name"
+        return 0
+    fi
+    edit_whitelist remove "$name"
+    echo "whitelist-remove: Paper inactive; updated whitelist.json (takes effect on next start)."
 }
 
 props_get() {
@@ -388,26 +485,32 @@ case "$action" in
         backup_mode
         ;;
     auth-config-apply)
-        [[ $# -eq 1 ]] || usage
+        require_restart_flag auth-config-apply "${2:-}"
+        [[ $# -eq 2 ]] || usage
+        echo "WARNING: restarting Paper now (auth config apply)..." >&2
         restart_if_active install_auth_config
         ;;
     auth-test-on)
-        [[ $# -eq 1 ]] || usage
+        require_restart_flag auth-test-on "${2:-}"
+        [[ $# -eq 2 ]] || usage
+        echo "WARNING: restarting Paper now (auth-test-on)..." >&2
         restart_if_active install_properties \
             "$templates/server.properties.auth-test"
         ;;
     auth-test-off)
-        [[ $# -eq 1 ]] || usage
+        require_restart_flag auth-test-off "${2:-}"
+        [[ $# -eq 2 ]] || usage
+        echo "WARNING: restarting Paper now (auth-test-off)..." >&2
         restart_if_active install_properties \
             "$templates/server.properties"
         ;;
     whitelist-add)
         [[ $# -eq 2 ]] || usage
-        restart_if_active edit_whitelist add "$2"
+        whitelist_add_live "$2"
         ;;
     whitelist-remove)
         [[ $# -eq 2 ]] || usage
-        restart_if_active edit_whitelist remove "$2"
+        whitelist_remove_live "$2"
         ;;
     whitelist-list)
         [[ $# -eq 1 ]] || usage
@@ -427,11 +530,11 @@ case "$action" in
         ;;
     ops-add)
         [[ $# -eq 2 ]] || usage
-        restart_if_active edit_ops add "$2"
+        ops_add_live "$2"
         ;;
     ops-remove)
         [[ $# -eq 2 ]] || usage
-        restart_if_active edit_ops remove "$2"
+        ops_remove_live "$2"
         ;;
     props-get)
         [[ $# -eq 1 || $# -eq 2 ]] || usage
