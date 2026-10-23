@@ -28,6 +28,8 @@ echo ">> container: live scripts + server config"
   srv/minecraft/plugins/AuthMe/config.yml srv/minecraft/plugins/AuthMe/commands.yml srv/minecraft/plugins/AuthMe/spawn.yml \
   srv/minecraft/plugins/AuthMe/welcome.txt srv/minecraft/plugins/AuthMe/messages \
   srv/minecraft/plugins/AxGraves/config.yml srv/minecraft/plugins/AxGraves/messages.yml \
+  srv/minecraft/plugins/FallingTimber/config.yml \
+  srv/minecraft/plugins/CoreProtect/config.yml \
   srv/minecraft/plugins/spark/config.json' | tar -C "$T/ctr" -xzf -
 # plugin inventory (name/version/sha256), computed in the container with python3
 "${CTR_SSH[@]}" 'python3 - <<"PY"
