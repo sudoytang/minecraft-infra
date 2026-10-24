@@ -142,7 +142,7 @@ player-interactions: true
 player-messages: true
 
 # Logs all commands used by players.
-player-commands: true
+player-commands: false
 
 # Logs the logins and logouts of players.
 player-sessions: true
