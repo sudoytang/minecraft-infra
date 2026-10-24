@@ -23,7 +23,7 @@ recipe-update-trigger: true
 #   auto - only clients that report REI (recommended)
 #   all  - every Fabric/NeoForge client, for recipe viewers this plugin cannot detect
 #   off  - never
-recipe-book-sync: auto
+recipe-book-sync: all
 
 # What to send to players whose client is not on the server's own Minecraft version.
 # ViaVersion/ViaBackwards let those players connect and translate the game's own packets for them,

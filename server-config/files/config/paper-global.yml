@@ -78,8 +78,8 @@ messages:
 misc:
   catchup-ticks: default
   chat-threads:
-    chat-executor-core-size: -1
-    chat-executor-max-size: -1
+    chat-executor-core-size: 1
+    chat-executor-max-size: 4
   client-interaction-leniency-distance: default
   compression-level: default
   enable-nether: true
