@@ -30,6 +30,8 @@ echo ">> container: live scripts + server config"
   srv/minecraft/plugins/AxGraves/config.yml srv/minecraft/plugins/AxGraves/messages.yml \
   srv/minecraft/plugins/Timberella/config.yml \
   srv/minecraft/plugins/Timberella/leaf_mappings.yml \
+  srv/minecraft/plugins/JEIRecipeFix/config.yml \
+  srv/minecraft/plugins/JEIRecipeFix/messages.yml \
   srv/minecraft/plugins/CoreProtect/config.yml \
   srv/minecraft/plugins/spark/config.json' | tar -C "$T/ctr" -xzf -
 # plugin inventory (name/version/sha256), computed in the container with python3

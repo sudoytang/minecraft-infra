@@ -1,0 +1,58 @@
+# JEIRecipeFix configuration.
+
+# Master switch. When false, no recipes are sent.
+enabled: true
+
+# Send recipes automatically when a player joins.
+sync-on-join: true
+
+# Re-send recipes to online players after a datapack reload.
+sync-on-datapack-reload: true
+
+# After sending the recipes, ask the client to re-read them.
+# JEI builds its recipe list the moment the server's own recipe packet arrives, which is before any
+# plugin can send anything, so without this it keeps showing your client's default recipes for the
+# whole session. Only sent to clients that report both Fabric's recipe-sync channel and JEI.
+# Turn this off if a recipe viewer misbehaves; recipes are then only correct after a rejoin.
+recipe-update-trigger: true
+
+# Send the server's full recipe book to the client.
+# This is the only thing REI reads: it builds its recipe list from the vanilla recipe-book packet,
+# and a server normally sends only the recipes a player has already unlocked, which is why REI looks
+# empty. The side effect is that the player's own recipe book lists every recipe as known.
+#   auto - only clients that report REI (recommended)
+#   all  - every Fabric/NeoForge client, for recipe viewers this plugin cannot detect
+#   off  - never
+recipe-book-sync: auto
+
+# What to send to players whose client is not on the server's own Minecraft version.
+# ViaVersion/ViaBackwards let those players connect and translate the game's own packets for them,
+# but they cannot translate the recipe payload this plugin sends: it carries this server's internal
+# item numbers, and those numbers move with every Minecraft version. A client reading them with its
+# own numbering gets a decode error and is disconnected on the spot.
+#   safe  - do not send them the payload, still send the recipe book (recommended).
+#           Nobody is disconnected, REI keeps working for them, JEI shows no server recipes.
+#   off   - send them nothing at all.
+#   force - send everything anyway. This WILL disconnect JEI players on another version.
+#           Only for a server where every client is on the server's own version.
+cross-version-sync: safe
+
+# What to do when a player's Minecraft version cannot be determined, because ViaVersion is not
+# installed on this server (it may be running on your proxy instead) or has not registered the
+# player yet.
+#   true  - assume they are on the server's own version and send everything. Correct for a server
+#           that does not run ViaVersion at all, which is the usual case.
+#   false - treat them as being on another version and apply 'cross-version-sync' above. Use this if
+#           your players arrive through a proxy that runs ViaVersion, since this server cannot see it.
+cross-version-unknown-is-native: true
+
+# Tell the player their recipes are synced.
+# A recipe viewer can warn that the server provides no recipes before any plugin is allowed to send
+# anything, and that warning stays on screen after the recipes have quietly arrived. This sends one
+# chat line saying so, once per join, and only to players whose client actually received the recipes
+# and was identified as running a recipe viewer. The wording lives in messages.yml under
+# jei-warning-notice.
+explain-jei-warning: true
+
+# Verbose logging for troubleshooting (per-player brand + recipe counts).
+debug: false
