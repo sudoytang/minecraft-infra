@@ -1,8 +1,6 @@
 # minecraft-infra
 
-Version-controlled archive of the owner's Paper Minecraft server (Tencent CVM `REDACTED_PUBLIC_IP`).
-Contains every **reusable** script/config. It does **not** contain secrets, world data, player
-data, logs or large binaries (see "Not in this repo").
+A Paper Minecraft server — Docker, scripts, and config.
 
 ## Architecture
 
@@ -40,7 +38,7 @@ Failures of any cron job / supervised program POST to the Grok Bot webhook
 |---|---|---|
 | `docker/` | Dockerfile, compose.yaml, sshd_config, authorized_keys (public keys), `rootfs/` (copied to `/` in image), `host/` (admin tools + templates copied into image) | host `/opt/minecraft` (build context), cross-checked with the live container |
 | `host/` | systemd unit on the CVM | `/etc/systemd/system/minecraft.service` |
-| `server-config/` | `files/` = tracked Paper/plugin config (secrets redacted), `PLUGINS.md` = jar names/versions/sha256 | live `/srv/minecraft` |
+| `server-config/` | `files/` = tracked Paper/plugin config, `PLUGINS.md` = jar names/versions/sha256 | live `/srv/minecraft` |
 | `afk-bot-azalea/` | Rust/Azalea dual AFK bot + `verify_bot` (restore test client) | box `/workspace/mc-afk-azalea` |
 | `restore-verify/` | weekly restore test harness | box `/workspace/mc-restore-verify` |
 | `client-pack/` | HMCL/Modrinth client modpack builder + small `.mrpack` | host `~/minecraft-staging` |
@@ -60,21 +58,21 @@ cd /opt/minecraft && sudo docker compose build && sudo docker compose up -d
 ```
 Script-only changes can be hot-copied into the container (`docker cp` / `ssh mc-container`) but
 **must also land in `/opt/minecraft`** or the next rebuild reverts them.
-Restoring server config: copy from `server-config/files/` into `/srv/minecraft`, then fill the
-`__REDACTED__` placeholders from the secrets store.
+Restoring server config: copy from `server-config/files/` into `/srv/minecraft`, then set
+local passwords and tokens as needed.
 
-## Secrets (values never in git)
-| secret | where it lives |
+## Credentials on the host
+| item | path |
 |---|---|
-| rclone.conf (COS keys + OneDrive token) | docker volume `minecraft-secrets` -> `/etc/minecraft-secrets/rclone.conf` (symlinked to `/etc/rclone/rclone.conf`) |
+| rclone.conf (COS + OneDrive) | docker volume `minecraft-secrets` -> `/etc/minecraft-secrets/rclone.conf` (symlinked to `/etc/rclone/rclone.conf`) |
 | COS bucket env | `/etc/minecraft-secrets/cos.env` |
 | failure webhook URL/key | `/etc/minecraft-secrets/minecraft-notify.env` (-> `/etc/minecraft-notify.env`) |
 | AuthMe password for bot_nether1 | `/etc/minecraft-secrets/azalea-authme-password`, seeded by entrypoint to `/home/ytang/minecraft-afk-azalea/authme-password` |
 | AuthMe password for bot_7e3a9c | docker volume `minecraft-afk` -> `/home/ytang/minecraft-afk-bot/authme-password` |
 | container sshd host key | docker volume `minecraft-sshkeys` (`/etc/ssh/keys`, generated on first start) |
-| `rcon.password`, `management-server-secret` | `/srv/minecraft/server.properties` (redacted here as `__REDACTED__`) |
+| `rcon.password`, `management-server-secret` | `/srv/minecraft/server.properties` |
 | box -> host/container SSH keys | box `/home/box/.ssh/` |
-| AuthMe DB, ops/whitelist/usercache | `/srv/minecraft` (player data, intentionally untracked) |
+| AuthMe DB, ops/whitelist/usercache | `/srv/minecraft` |
 
 ## Not in this repo (and why)
 * World data, `backups/`, logs, `authme.db`, `ops.json`, `whitelist.json`, `usercache.json`, `banned-*.json` – player/runtime data.
@@ -91,6 +89,6 @@ Restoring server config: copy from `server-config/files/` into `/srv/minecraft`,
 On the Grok Bot box: `tools/sync-from-live.sh` (read-only on servers) pulls the build context
 from `/opt/minecraft`, the systemd unit, live container scripts/config, and box sources;
 anything where the live container differs from `/opt/minecraft` is reported as `DRIFT` and the
-live copy is taken. Then it redacts, secret-scans and stages. Review `git diff --cached`, then
-`git commit && git push` (or `tools/sync-from-live.sh --commit "msg"`).
+live copy is taken. Review `git diff --cached`, then `git commit && git push`
+(or `tools/sync-from-live.sh --commit "msg"`).
 Rule of thumb: change the repo -> copy to `/opt/minecraft` -> rebuild, or hot-fix live -> run sync the same day.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pull the tracked (non-secret) infra files from the live host/container and the box
-# into this repo, redact secrets, then show what changed. Read-only on the servers.
+# Pull tracked infra files from the live host/container and the box into this repo,
+# then show what changed. Read-only on the servers.
 # Usage: tools/sync-from-live.sh [--commit "message"]
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)

@@ -15,7 +15,7 @@ RUN sed -i 's#http://deb.debian.org#http://mirrors.tencentyun.com#g' /etc/apt/so
  && groupadd -g 1001 ytang && useradd -u 1001 -g 1001 -d /home/ytang -s /usr/sbin/nologin -m ytang \
  && mkdir -p /run/sshd /root/.ssh /var/log/minecraft /etc/rclone /usr/local/share/minecraft-admin \
  && chmod 700 /root/.ssh && rm -f /etc/ssh/ssh_host_*
-# host-sourced tools, copied into ./host by migrate-v2.sh (no secrets)
+# host-sourced tools, copied into ./host by migrate-v2.sh
 COPY host/rclone /usr/bin/rclone
 COPY host/minecraft-afk-azalea /usr/local/bin/minecraft-afk-azalea
 COPY host/minecraft-admin host/minecraft-rcon host/minecraft-backup-upload host/minecraft-notify-failure /usr/local/sbin/
